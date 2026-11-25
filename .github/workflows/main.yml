@@ -1,0 +1,131 @@
+name: Azure Neural JP Voice + OTA Deploy + Android APK (Kotonoha)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy-ota:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prepare www & Generate Azure Neural Japanese MP3 Audio (Nanami/Keita)
+        run: |
+          if [ -d "kotonoha-mobile-app/www" ]; then
+            cp -rf kotonoha-mobile-app/www ./www
+          fi
+          if [ -d "kotonoha-mobile-app/scripts" ]; then
+            cp -rf kotonoha-mobile-app/scripts ./scripts
+          fi
+          if [ -f "index.html" ]; then
+            mkdir -p www
+            cp -f index.html www/index.html
+          fi
+          if [ -f "generate_jp_audio.py" ]; then
+            mkdir -p scripts
+            cp -f generate_jp_audio.py scripts/generate_jp_audio.py
+          fi
+          pip install --quiet edge-tts
+          python3 scripts/generate_jp_audio.py
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+
+      - name: Deploy to GitHub Pages (Live OTA with Azure Neural Audio)
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Generate Azure Neural Japanese Audio & Build Android APK
+        run: |
+          if [ -f "kotonoha-mobile-app/package.json" ]; then
+            cd kotonoha-mobile-app
+          fi
+          if [ -f "index.html" ]; then
+            mkdir -p www
+            cp -f index.html www/index.html
+          fi
+          if [ -f "generate_jp_audio.py" ]; then
+            mkdir -p scripts
+            cp -f generate_jp_audio.py scripts/generate_jp_audio.py
+          fi
+          pip install --quiet edge-tts
+          python3 scripts/generate_jp_audio.py
+          python3 - << 'PY'
+          import json
+          p = 'package.json'
+          d = json.load(open(p, encoding='utf-8'))
+          deps = d.get('dependencies', {})
+          deps.pop('@capacitor-community/text-to-speech', None)
+          deps.pop('@capacitor-community/speech-recognition', None)
+          open(p, 'w', encoding='utf-8').write(json.dumps(d, indent=2, ensure_ascii=False))
+          PY
+          npm install --legacy-peer-deps
+          npm install @capacitor-community/text-to-speech@5 @capacitor-community/speech-recognition@6 --legacy-peer-deps
+          npx cap add android
+          python3 - << 'PY'
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p, encoding='utf-8').read()
+          perms = (
+            '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n'
+            '    <queries>\n'
+            '        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>\n'
+            '        <intent><action android:name="android.speech.RecognitionService" /></intent>\n'
+            '    </queries>\n'
+          )
+          if 'RECORD_AUDIO' not in s:
+            s = s.replace('<application', perms + '    <application', 1)
+            open(p, 'w', encoding='utf-8').write(s)
+          PY
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotonoha-android-apk
+          path: "**/android/app/build/outputs/apk/debug/app-debug.apk"
