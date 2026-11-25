@@ -1,0 +1,17 @@
+{
+  "appId": "com.kotonoha.japanese",
+  "appName": "코토노하",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://tdty06.github.io/kotonoha-app/",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}
